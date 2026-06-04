@@ -1,0 +1,17 @@
+# 构建产物
+/build/
+
+# Qt Creator 本地配置
+.qtcreator/
+*.user
+*.user.*
+
+# Python
+__pycache__/
+*.pyc
+
+# 运行时生成的数据库
+*.db
+
+# 博客草稿
+blog.md
