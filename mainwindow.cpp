@@ -81,23 +81,58 @@ void MainWindow::connectModbus()
     m_modbusClient->setTimeout(1000);       // 超时 1 秒
     m_modbusClient->setNumberOfRetries(3);  // 重试 3 次
 
-    if (!m_modbusClient->connectDevice()) {
-        statusBar()->showMessage(
-            QString("连接下位机失败: %1").arg(m_modbusClient->errorString()));
-        m_pumpButton->setEnabled(false);
-        m_pumpButton->setText("未连接下位机");
-        return;
-    }
-
-    statusBar()->showMessage("已连接到下位机 (127.0.0.1:502)", 3000);
-    m_pumpButton->setEnabled(true);
-
     // 定时器创建但不立刻启动 —— 等点"启动水泵"才开始轮询
     m_pollTimer = new QTimer(this);
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::readPressure);
 
+    // 下位机晚于 HMI 启动时自动重连，避免首次连接失败后永久离线
+    m_reconnectTimer = new QTimer(this);
+    m_reconnectTimer->setInterval(2000);
+    connect(m_reconnectTimer, &QTimer::timeout, this, [this]() {
+        if (m_modbusClient->state() == QModbusDevice::UnconnectedState)
+            m_modbusClient->connectDevice();
+    });
+
+    connect(m_modbusClient, &QModbusDevice::stateChanged,
+            this, [this](QModbusDevice::State state) {
+        switch (state) {
+        case QModbusDevice::ConnectedState:
+            m_reconnectTimer->stop();
+            m_pumpButton->setEnabled(true);
+            m_pumpButton->setText(m_pumpRunning ? "停止水泵" : "启动水泵");
+            statusBar()->showMessage("已连接到下位机 (127.0.0.1:502)", 3000);
+            readPressure();
+            break;
+        case QModbusDevice::ConnectingState:
+            m_pumpButton->setEnabled(false);
+            m_pumpButton->setText("正在连接...");
+            statusBar()->showMessage("正在连接下位机 127.0.0.1:502...");
+            break;
+        case QModbusDevice::UnconnectedState:
+            m_pollTimer->stop();
+            m_pumpButton->setEnabled(false);
+            m_pumpButton->setText("未连接下位机");
+            statusBar()->showMessage("下位机未连接，2 秒后自动重试");
+            if (!m_reconnectTimer->isActive())
+                m_reconnectTimer->start();
+            break;
+        case QModbusDevice::ClosingState:
+            m_pumpButton->setEnabled(false);
+            break;
+        }
+    });
+
     // 初始为"停机"状态：界面全部归零
     resetDisplay();
+
+    m_pumpButton->setEnabled(false);
+    m_pumpButton->setText("正在连接...");
+    if (!m_modbusClient->connectDevice()) {
+        statusBar()->showMessage(
+            QString("连接下位机失败: %1；2 秒后自动重试")
+                .arg(m_modbusClient->errorString()));
+        m_reconnectTimer->start();
+    }
 }
 
 // mainwindow.cpp — 读取部分

@@ -34,6 +34,7 @@ private:
     // Modbus 通信
     QModbusTcpClient *m_modbusClient = nullptr;
     QTimer *m_pollTimer = nullptr;
+    QTimer *m_reconnectTimer = nullptr;
 
     // 实时图表
     QChart *m_chart = nullptr;
